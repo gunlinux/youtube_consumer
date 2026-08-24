@@ -31,11 +31,6 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      # app/static/dist is gitignored build output; the image COPYs it, so it
-      # must exist before docker build (same requirement as local builds).
-      - name: Build CSS bundle
-        run: make css-build
-
       - name: Compute image tag
         id: tag
         env:

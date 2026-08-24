@@ -1,6 +1,6 @@
 name: Deploy to Server
 
-# Fires when the "Rust" quality-gate workflow passes on master: build the
+# Fires when the "Rust" quality-gate workflow passes on master: build therus
 # Docker image, push it to Docker Hub tagged with the commit short SHA (plus
 # `latest`), then run .github/deploy.sh on the production server over SSH.
 #
@@ -50,7 +50,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: rust/Dockerfile
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.sha7 }}

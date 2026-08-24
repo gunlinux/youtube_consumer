@@ -9,8 +9,8 @@ name: Deploy to Server
 
 on:
   workflow_run:
-    workflows: ["Python Code quality"]
-    branches: [master]
+    workflows: ["ci"]
+    branches: [main]
     types:
       - completed
 

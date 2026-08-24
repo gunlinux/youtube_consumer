@@ -1,0 +1,23 @@
+[Unit]
+Description=youtube_consumer
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User=loki
+Group=loki
+
+# `-` prefix: tolerated failure (container not running yet on first start).
+ExecStartPre=-/usr/bin/docker rm -f youtube_consumer
+ExecStartPre=/usr/bin/docker pull gunlinuxloki/youtube_consumer:@IMAGE_TAG@
+ExecStart=/usr/bin/docker run --rm --name youtube_consumer \
+  --env-file /home/loki/youtube_consumer/.env \
+  gunlinuxloki/youtube_consumer:@IMAGE_TAG@
+ExecStop=/usr/bin/docker stop youtube_consumer
+Restart=on-failure
+RestartSec=3
+SyslogIdentifier=youtube_consumer
+
+[Install]
+WantedBy=multi-user.target

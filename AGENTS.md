@@ -5,9 +5,9 @@ Instructional context for agents working in this repository.
 ## Project Overview
 
 `youtube_consumer` is a Python 3.12 async service that polls YouTube live chat
-and publishes each chat message as JSON to the durable RabbitMQ `messages`
-queue, feeding the downstream `stream_stats_consumer` → `stream_stats`
-(PostgreSQL) pipeline.
+and publishes each chat message as JSON to a RabbitMQ `fanout` exchange
+(`messages`), which is bound to the durable `messages` queue, feeding the
+downstream `stream_stats_consumer` → `stream_stats` (PostgreSQL) pipeline.
 
 Data flow:
 
@@ -19,6 +19,9 @@ YouTubeProvider  (native poller extracted from termchat, GPL-3.0-or-later)
     │  Message dataclass (platform="youtube" | "system")
     ▼
 publisher.publish_message  →  MessageCreate JSON (source=1, youtube)
+    ▼
+RabbitMQ "messages" fanout exchange  (durable, declared on startup)
+    │  binding: fanout → "messages" queue
     ▼
 RabbitMQ "messages" queue  (durable, declared on startup)
 ```
@@ -33,17 +36,19 @@ of termchat so messages map onto the `stream_stats` schema: `author_id`
 
 - `src/__main__.py` — entry point (`python -m src`). CLI arg parsing
   (`--channel`), SIGINT/SIGTERM handling, main loop: broker start →
-  `ensure_queue` → iterate `provider.messages()` → publish. System messages
+  `ensure_topology` → iterate `provider.messages()` → publish. System messages
   are logged (warning), never published.
 - `src/config.py` — `Settings` (pydantic-settings), env-loaded with `env_prefix=""`
   from `.env`. Fields: `youtube_channel`, `amqp_dsn`, `amqp_queue`,
-  `amqp_reconnect_delay`.
+  `amqp_exchange`, `amqp_reconnect_delay`.
 - `src/models.py` — `Source` IntEnum (`TWITCH=0`, `YOUTUBE=1`) and
   `MessageCreate` pydantic model: the exact queue payload contract shared with
   `stream_stats_consumer`. `source` is always `1`.
-- `src/publisher.py` — FastStream `RabbitBroker` factory, `ensure_queue`
-  (declares durable queue so publishes are never silently dropped),
-  `to_message_create` (Message → MessageCreate mapping), `publish_message`.
+- `src/publisher.py` — FastStream `RabbitBroker` factory, `make_exchange`
+  (durable `fanout` `RabbitExchange`), `ensure_topology` (declares the exchange,
+  the durable queue, and the binding between them, so publishes are never
+  silently dropped), `to_message_create` (Message → MessageCreate mapping),
+  `publish_message` (publishes to the exchange, no queue target).
 - `src/domain/message.py` — frozen `Message` dataclass
   (`id, author, author_id, text, timestamp, platform, stream_id`) plus
   `Message.system(text)` factory for provider error/status messages.
@@ -91,8 +96,8 @@ Tests live in `test/` and are configured via `[tool.pytest.ini_options]` in
 Conventions:
 - Async tests are marked `@pytest.mark.asyncio`.
 - The RabbitMQ broker is **never** touched in tests. `test/test_publish.py`
-  uses a duck-typed `FakeBroker` (records `publish` / `declare_queue` calls)
-  and plain `Settings(...)` instances.
+  uses a duck-typed `FakeBroker` (records `publish`, `declare_exchange`,
+  `declare_queue`, and queue-binding calls) and plain `Settings(...)` instances.
 - The YouTube poller is tested with hand-built fakes (`_FakeClient`,
   `_FakeResponse`) satisfying the `_HTTPClient` protocol; provider-level tests
   use `unittest.mock.patch.object` on `_open_chat`.
@@ -147,6 +152,13 @@ Published payload (identical to what `stream_stats_consumer` validates):
   (`to_message_create`).
 - `channel_id` is the channel handle with `@` stripped.
 - `Message.platform == "system"` messages are logged, not published.
+- Transport: messages are published to the durable `fanout` exchange named by
+  `amqp_exchange` (default `messages`), with no routing key. On startup
+  `ensure_topology` declares the exchange, the durable `messages` queue
+  (`amqp_queue`), and the binding between them; the fanout has no bound queue it
+  would drop messages, so the binding must exist before the first publish.
+  `stream_stats_consumer` must bind its queue to the same exchange; a matching
+  `topic`/filtering scheme is deliberately not used.
 
 ## Gotchas
 

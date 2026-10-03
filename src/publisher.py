@@ -2,7 +2,7 @@
 
 import logging
 
-from faststream.rabbit import ExchangeType, RabbitBroker, RabbitExchange, RabbitQueue
+from faststream.rabbit import ExchangeType, RabbitBroker, RabbitExchange
 
 from src.config import Settings
 from src.domain.message import Message
@@ -27,15 +27,13 @@ def make_exchange(settings: Settings) -> RabbitExchange:
     )
 
 
-async def ensure_topology(broker: RabbitBroker, settings: Settings) -> None:
-    """Declare the exchange, queue, and binding so publishes are never dropped.
+async def ensure_exchange(broker: RabbitBroker, settings: Settings) -> None:
+    """Declare the fanout exchange before the first publish.
 
-    A fanout exchange drops a message when no queue is bound, so the queue and
-    its binding are declared here before the first publish.
+    The producer knows only the exchange it publishes to; declaring the durable
+    queue and binding it belongs to the consumer, which owns that topology.
     """
-    exchange = await broker.declare_exchange(make_exchange(settings))
-    queue = await broker.declare_queue(RabbitQueue(settings.amqp_queue, durable=True))
-    await queue.bind(exchange, routing_key=settings.amqp_queue)
+    await broker.declare_exchange(make_exchange(settings))
 
 
 def to_message_create(message: Message, channel: str) -> MessageCreate:

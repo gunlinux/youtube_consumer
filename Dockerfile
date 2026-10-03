@@ -29,5 +29,5 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 
 # Config comes from environment variables at runtime:
-#   youtube_channel, amqp_dsn, amqp_queue
+#   youtube_channel, amqp_dsn, amqp_exchange
 CMD ["python", "-m", "src"]

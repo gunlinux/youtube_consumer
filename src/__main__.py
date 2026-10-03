@@ -5,7 +5,7 @@ import signal
 
 from src.config import Settings
 from src.providers.youtube import YouTubeProvider
-from src.publisher import ensure_topology, make_broker, publish_message
+from src.publisher import ensure_exchange, make_broker, publish_message
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ async def run(settings: Settings, channel: str) -> None:
     broker = make_broker(settings)
     await broker.start()
     try:
-        await ensure_topology(broker, settings)
+        await ensure_exchange(broker, settings)
         provider = YouTubeProvider(channel)
 
         loop = asyncio.get_running_loop()

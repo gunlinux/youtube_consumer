@@ -1,35 +1,4 @@
-## Purpose
-
-Defines how the YouTube chat producer delivers messages to RabbitMQ: chat
-messages are published to a shared fanout exchange so that consumers can attach
-their own queues without the producer knowing them.
-
-## Requirements
-
-### Requirement: Chat messages are published to a fanout exchange
-
-The producer SHALL publish each chat message to a fanout exchange rather than
-directly to a named queue. The exchange name SHALL be configurable, defaulting
-to `messages`. The message body SHALL remain the same `MessageCreate` JSON
-payload published today (a fanout exchange has no routing key).
-
-#### Scenario: Message is published to the exchange
-
-- **WHEN** a valid chat message is published
-- **THEN** a `basic.publish` is sent to the configured fanout exchange
-- **AND** no queue name is set as the publish routing destination by the
-  producer
-
-#### Scenario: Exchange name is configurable
-
-- **WHEN** the producer starts with an exchange name configured
-- **THEN** it publishes to that exchange
-
-#### Scenario: Payload is unchanged
-
-- **WHEN** any chat message is published
-- **THEN** the body is the same `MessageCreate` JSON (`body`, `source`,
-  `message_id`, `author_id`, `stream_id`, `channel_id`) sent before this change
+## ADDED Requirements
 
 ### Requirement: Only the fanout exchange is declared before publishing
 
@@ -62,3 +31,18 @@ the consumer, not the producer.
 - **WHEN** the producer is configured with only an exchange name and no queue
   name
 - **THEN** it starts and publishes normally
+
+## REMOVED Requirements
+
+### Requirement: Exchange, queue, and binding are declared before publishing
+
+**Reason**: The producer no longer owns the consumer's queue topology. Declaring
+the durable queue and its binding from the producer hard-codes knowledge of a
+consumer that the producer should not have; that declaration moves to the
+consumer.
+
+**Migration**: Queue and binding declaration moves to the consumer
+(`stream_stats_consumer`). The producer now declares only the fanout exchange
+(see the added requirement above). A deployment must ensure a durable queue is
+bound to the exchange before producers publish; otherwise a fanout exchange
+drops messages with no bound queue.

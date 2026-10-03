@@ -5,7 +5,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     youtube_channel: str = ""
     amqp_dsn: AmqpDsn = AmqpDsn("amqp://user:password@localhost:5672")
-    amqp_queue: str = "messages"
     amqp_exchange: str = "messages"
     amqp_reconnect_delay: float = 5.0
 

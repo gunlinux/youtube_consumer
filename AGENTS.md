@@ -36,19 +36,20 @@ of termchat so messages map onto the `stream_stats` schema: `author_id`
 
 - `src/__main__.py` — entry point (`python -m src`). CLI arg parsing
   (`--channel`), SIGINT/SIGTERM handling, main loop: broker start →
-  `ensure_topology` → iterate `provider.messages()` → publish. System messages
+  `ensure_exchange` → iterate `provider.messages()` → publish. System messages
   are logged (warning), never published.
 - `src/config.py` — `Settings` (pydantic-settings), env-loaded with `env_prefix=""`
-  from `.env`. Fields: `youtube_channel`, `amqp_dsn`, `amqp_queue`,
-  `amqp_exchange`, `amqp_reconnect_delay`.
+  from `.env`. Fields: `youtube_channel`, `amqp_dsn`, `amqp_exchange`,
+  `amqp_reconnect_delay`.
 - `src/models.py` — `Source` IntEnum (`TWITCH=0`, `YOUTUBE=1`) and
   `MessageCreate` pydantic model: the exact queue payload contract shared with
   `stream_stats_consumer`. `source` is always `1`.
 - `src/publisher.py` — FastStream `RabbitBroker` factory, `make_exchange`
-  (durable `fanout` `RabbitExchange`), `ensure_topology` (declares the exchange,
-  the durable queue, and the binding between them, so publishes are never
-  silently dropped), `to_message_create` (Message → MessageCreate mapping),
-  `publish_message` (publishes to the exchange, no queue target).
+  (durable `fanout` `RabbitExchange`), `ensure_exchange` (declares only the
+  fanout exchange the producer publishes to; the durable queue and its binding
+  are the consumer's responsibility), `to_message_create` (Message →
+  MessageCreate mapping), `publish_message` (publishes to the exchange, no queue
+  target).
 - `src/domain/message.py` — frozen `Message` dataclass
   (`id, author, author_id, text, timestamp, platform, stream_id`) plus
   `Message.system(text)` factory for provider error/status messages.
@@ -154,11 +155,12 @@ Published payload (identical to what `stream_stats_consumer` validates):
 - `Message.platform == "system"` messages are logged, not published.
 - Transport: messages are published to the durable `fanout` exchange named by
   `amqp_exchange` (default `messages`), with no routing key. On startup
-  `ensure_topology` declares the exchange, the durable `messages` queue
-  (`amqp_queue`), and the binding between them; the fanout has no bound queue it
-  would drop messages, so the binding must exist before the first publish.
-  `stream_stats_consumer` must bind its queue to the same exchange; a matching
-  `topic`/filtering scheme is deliberately not used.
+  `ensure_exchange` declares only that exchange; the producer knows nothing
+  about queues or bindings. The consumer owns that topology: it must declare its
+  durable queue and bind it to the exchange, because the fanout drops a message
+  when no queue is bound. `stream_stats_consumer` owns the durable `messages`
+  queue and binding; a matching `topic`/filtering scheme is deliberately not
+  used.
 
 ## Gotchas
 

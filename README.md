@@ -46,12 +46,12 @@ Payload is the same `MessageCreate` JSON the `stream_stats_consumer` validates:
 }
 ```
 
-`source` is always `1` (youtube). On startup `ensure_topology` declares the
-durable `messages` fanout exchange, the durable `messages` queue, and the
-binding between them, so the producer never publishes into a missing queue
-(fanout drops a message with no bound queue). Set `amqp_exchange` / `amqp_queue`
-to change the names. Consumers must bind their own queue to the exchange;
-`stream_stats_consumer` is updated to do so.
+`source` is always `1` (youtube). On startup `ensure_exchange` declares only the
+durable `messages` fanout exchange; the producer knows nothing about queues or
+bindings. The consumer owns that topology: `stream_stats_consumer` declares the
+durable `messages` queue and binds it to the exchange before messages are
+consumed (a fanout exchange drops a message with no bound queue). Set
+`amqp_exchange` to change the exchange name.
 
 ## Setup
 

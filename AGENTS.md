@@ -154,9 +154,15 @@ Published payload (identical to what `stream_stats_consumer` validates):
   0.1s slices against a `threading.Event`); it is bridged to async via
   `run_in_executor` with a single-worker `ThreadPoolExecutor`. Preserve this
   bridge when changing the provider.
-- Offline channels: HTTP 400 from the chat API is treated as "no active
-  stream" — yields a system message and retries every `_RECONNECT_SLEEP_S`
-  (30s). Other failures terminate the provider with a system message.
+- Not-live channels: no active stream (HTTP 400 from the chat API) or a
+  missing `liveChatRenderer` (`_YouTubeBootstrapError`) is treated as "not
+  live" — the provider emits a system message, waits an idle gap, and keeps
+  retrying instead of exiting. The gap starts at `_IDLE_BACKOFF_MIN_S` (1s) and
+  doubles per consecutive not-live result up to `_IDLE_BACKOFF_MAX_S` (60s);
+  it resets to 1s after the first successful poller step of a live chat. A
+  clean chat end (`_next_or_none` returns `None`) also reconnects with the same
+  backoff. Non-offline failures still terminate the provider with a system
+  message.
 - `_extract_continuation` clamps poll sleep to `[1.0, 10.0]`s based on
   `timeoutMs` (default 2.0s).
 - `_post_chat` retries 429/5xx with exponential backoff (max 3 retries); do

@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -486,28 +486,48 @@ async def test_youtube_provider_maps_entries():
         },
     ]
     provider = YouTubeProvider("somechannel")
-    with patch.object(
-        provider,
-        "_open_chat",
-        return_value=("https://www.youtube.com/watch?v=AbCdEfGh123", iter(entries)),
+    with (
+        patch.object(
+            provider,
+            "_open_chat",
+            side_effect=[
+                ("https://www.youtube.com/watch?v=AbCdEfGh123", iter(entries)),
+                RuntimeError("stop"),
+            ],
+        ),
+        patch("src.providers.youtube.asyncio.sleep", new=AsyncMock()),
     ):
         msgs = [m async for m in provider.messages()]
 
-    assert len(msgs) == 2
-    assert msgs[0].author == "alice"
-    assert msgs[0].author_id == "UC1"
-    assert msgs[0].stream_id == "AbCdEfGh123"
-    assert msgs[1].stream_id == "AbCdEfGh123"
+    chat_msgs = [m for m in msgs if m.platform == "youtube"]
+    assert len(chat_msgs) == 2
+    assert chat_msgs[0].author == "alice"
+    assert chat_msgs[0].author_id == "UC1"
+    assert chat_msgs[0].stream_id == "AbCdEfGh123"
+    assert chat_msgs[1].stream_id == "AbCdEfGh123"
 
 
 @pytest.mark.asyncio
-async def test_youtube_provider_exits_when_chat_ends():
+async def test_youtube_provider_retries_when_chat_ends():
     provider = YouTubeProvider("somechannel")
-    with patch.object(
-        provider, "_open_chat", return_value=("https://x/watch?v=abc", iter([]))
+    calls = {"n": 0}
+
+    def open_chat(stop):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ("https://x/watch?v=abc", iter([]))
+        raise RuntimeError("stop")
+
+    with (
+        patch.object(provider, "_open_chat", side_effect=open_chat),
+        patch("src.providers.youtube.asyncio.sleep", new=AsyncMock()) as sleeper,
     ):
         msgs = [m async for m in provider.messages()]
-    assert msgs == []
+
+    assert calls["n"] == 2
+    assert all(m.platform == "system" for m in msgs)
+    assert "live chat ended" in msgs[0].text
+    assert sleeper.call_args_list[0].args[0] == 1.0
 
 
 @pytest.mark.asyncio
@@ -530,3 +550,85 @@ def test_youtube_live_url_builds_from_channel():
         == "https://www.youtube.com/@somechannel/live"
     )
     assert YouTubeProvider("@handle").live_url == "https://www.youtube.com/@handle/live"
+
+
+@pytest.mark.asyncio
+async def test_provider_idle_backoff_grows_and_caps():
+    provider = YouTubeProvider("somechannel")
+    calls = {"n": 0}
+
+    def open_chat(stop):
+        calls["n"] += 1
+        if calls["n"] <= 8:
+            raise _YouTubeBootstrapError("no active live stream")
+        raise RuntimeError("fatal")
+
+    with (
+        patch.object(provider, "_open_chat", side_effect=open_chat),
+        patch("src.providers.youtube.asyncio.sleep", new=AsyncMock()) as sleeper,
+    ):
+        msgs = [m async for m in provider.messages()]
+
+    assert [c.args[0] for c in sleeper.call_args_list] == [
+        1.0,
+        2.0,
+        4.0,
+        8.0,
+        16.0,
+        32.0,
+        60.0,
+        60.0,
+    ]
+    assert msgs[-1].text == "[youtube] failed to open chat: fatal"
+
+
+@pytest.mark.asyncio
+async def test_provider_idle_backoff_resets_after_live_chat():
+    provider = YouTubeProvider("somechannel")
+    entries = [{"author": "a", "message": "hi", "timestamp": None}]
+    results: list[object] = [
+        *[_YouTubeBootstrapError("no active live stream")] * 7,
+        ("https://x/watch?v=abc", iter(entries)),
+        _YouTubeBootstrapError("no active live stream"),
+        RuntimeError("fatal"),
+    ]
+    it = iter(results)
+
+    def open_chat(stop):
+        result = next(it)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with (
+        patch.object(provider, "_open_chat", side_effect=open_chat),
+        patch("src.providers.youtube.asyncio.sleep", new=AsyncMock()) as sleeper,
+    ):
+        [m async for m in provider.messages()]
+
+    gaps = [c.args[0] for c in sleeper.call_args_list]
+    assert gaps[:7] == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0]
+    assert gaps[7] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_provider_stays_alive_on_bootstrap_error():
+    provider = YouTubeProvider("somechannel")
+    calls = {"n": 0}
+
+    def open_chat(stop):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _YouTubeBootstrapError("Unable to parse initial video data")
+        raise RuntimeError("fatal")
+
+    with (
+        patch.object(provider, "_open_chat", side_effect=open_chat),
+        patch("src.providers.youtube.asyncio.sleep", new=AsyncMock()),
+    ):
+        msgs = [m async for m in provider.messages()]
+
+    assert calls["n"] == 3
+    assert len(msgs) == 3
+    assert all(m.platform == "system" for m in msgs)
+    assert "Unable to parse initial video data" in msgs[0].text

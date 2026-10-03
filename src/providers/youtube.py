@@ -84,12 +84,21 @@ def _fmt_error(e: Exception) -> str:
 
 
 def _is_offline_error(e: Exception) -> bool:
+    """True when a failure means the channel simply has no live stream."""
+    if isinstance(e, _YouTubeBootstrapError):
+        return True
     if isinstance(e, httpx.HTTPStatusError):
         return e.response.status_code == 400
     return False
 
 
-_RECONNECT_SLEEP_S = 30.0
+_IDLE_BACKOFF_MIN_S = 1.0
+_IDLE_BACKOFF_MAX_S = 60.0
+
+
+def _grow_idle_gap(gap: float) -> float:
+    """Double the idle gap, clamped to the maximum."""
+    return min(gap * 2.0, _IDLE_BACKOFF_MAX_S)
 
 
 # --- Native YouTube live chat poller (replaces unmaintained chat_downloader 0.2.8) ---
@@ -391,6 +400,7 @@ class YouTubeProvider:
         stop = threading.Event()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         startup_time = datetime.now(UTC)
+        idle_gap = _IDLE_BACKOFF_MIN_S
         try:
             while True:
                 try:
@@ -398,44 +408,47 @@ class YouTubeProvider:
                         executor, lambda: self._open_chat(stop)
                     )
                 except Exception as e:
-                    if _is_offline_error(e):
+                    if not _is_offline_error(e):
                         yield Message.system(
-                            f"[youtube] {_fmt_error(e)}, retrying in "
-                            f"{_RECONNECT_SLEEP_S:.0f}s"
+                            f"[youtube] failed to open chat: {_fmt_error(e)}"
                         )
-                        await asyncio.sleep(_RECONNECT_SLEEP_S)
-                        continue
+                        return
                     yield Message.system(
-                        f"[youtube] failed to open chat: {_fmt_error(e)}"
+                        f"[youtube] failed to open chat: {_fmt_error(e)}, "
+                        f"retrying in {idle_gap:.0f}s"
                     )
-                    return
-
-                stream_id = _extract_video_id(url)
-                reconnect = False
-                while True:
-                    try:
-                        entry = await loop.run_in_executor(
-                            executor, _next_or_none, chat
-                        )
-                    except Exception as e:
-                        if _is_offline_error(e):
+                else:
+                    stream_id = _extract_video_id(url)
+                    chat_live = False
+                    while True:
+                        try:
+                            entry = await loop.run_in_executor(
+                                executor, _next_or_none, chat
+                            )
+                        except Exception as e:
+                            if not _is_offline_error(e):
+                                yield Message.system(f"[youtube] {_fmt_error(e)}")
+                                return
                             yield Message.system(
                                 f"[youtube] {_fmt_error(e)}, retrying in "
-                                f"{_RECONNECT_SLEEP_S:.0f}s"
+                                f"{idle_gap:.0f}s"
                             )
-                            await asyncio.sleep(_RECONNECT_SLEEP_S)
-                            reconnect = True
-                        else:
-                            yield Message.system(f"[youtube] {_fmt_error(e)}")
-                        break
-                    if entry is None:
-                        break
-                    msg = _map_entry(entry, stream_id)
-                    if msg and msg.timestamp >= startup_time:
-                        yield msg
+                            break
+                        if not chat_live:
+                            idle_gap = _IDLE_BACKOFF_MIN_S
+                            chat_live = True
+                        if entry is None:
+                            yield Message.system(
+                                f"[youtube] live chat ended, retrying in "
+                                f"{idle_gap:.0f}s"
+                            )
+                            break
+                        msg = _map_entry(entry, stream_id)
+                        if msg and msg.timestamp >= startup_time:
+                            yield msg
 
-                if not reconnect:
-                    return
+                await asyncio.sleep(idle_gap)
+                idle_gap = _grow_idle_gap(idle_gap)
         finally:
             stop.set()
             executor.shutdown(wait=False, cancel_futures=True)

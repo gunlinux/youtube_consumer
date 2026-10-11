@@ -45,6 +45,7 @@ def test_to_message_create_maps_fields():
     assert create.source == Source.YOUTUBE
     assert create.message_id == "yt-1"
     assert create.author_id == "UCabc"
+    assert create.author == "@viewer"
     assert create.stream_id == "VID1"
     assert create.channel_id == "channel"
 
@@ -107,6 +108,7 @@ async def test_publish_message_payload_is_unchanged():
         "source": 1,
         "message_id": "yt-1",
         "author_id": "UCabc",
+        "author": "@viewer",
         "stream_id": "VID1",
         "channel_id": "channel",
     }

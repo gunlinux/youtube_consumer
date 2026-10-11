@@ -17,5 +17,6 @@ class MessageCreate(BaseModel):
     source: Source = Field(..., description="0 twitch, 1 youtube")
     message_id: str = Field(..., description="id внешней системы")
     author_id: str = Field(..., description="ID чаттерса")
+    author: str = Field("", description="Отображаемое имя чаттерса")
     stream_id: str = Field(..., description="ID стрима")
     channel_id: str = Field(..., description="Id канала")

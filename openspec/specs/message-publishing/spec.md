@@ -29,7 +29,9 @@ payload published today (a fanout exchange has no routing key).
 
 - **WHEN** any chat message is published
 - **THEN** the body is the same `MessageCreate` JSON (`body`, `source`,
-  `message_id`, `author_id`, `stream_id`, `channel_id`) sent before this change
+  `message_id`, `author_id`, `author`, `stream_id`, `channel_id`) sent before
+  this change, where `author` is the chatter's display name and `author_id` its
+  platform id
 
 ### Requirement: Only the fanout exchange is declared before publishing
 

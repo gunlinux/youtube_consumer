@@ -43,6 +43,7 @@ def to_message_create(message: Message, channel: str) -> MessageCreate:
         source=Source.YOUTUBE,
         message_id=message.id,
         author_id=message.author_id or message.author,
+        author=message.author,
         stream_id=message.stream_id,
         channel_id=channel.lstrip("@"),
     )

@@ -20,10 +20,11 @@ YouTubeProvider  (native poller extracted from termchat, GPL-3.0-or-later)
     ▼
 publisher.publish_message  →  MessageCreate JSON (source=1, youtube)
     ▼
-RabbitMQ "messages" fanout exchange  (durable, declared on startup)
-    │  binding: fanout → "messages" queue
+RabbitMQ "messages" fanout exchange  (durable; the only topology
+    │                                  this producer declares on startup)
+    │  binding: fanout → "messages" queue   ← owned by the consumer
     ▼
-RabbitMQ "messages" queue  (durable, declared on startup)
+RabbitMQ "messages" queue  (durable; declared/bound by stream_stats_consumer)
 ```
 
 The YouTube poller (ytcfg/ytInitialData bootstrap, continuation polling,
@@ -91,14 +92,16 @@ docker run --env-file .env youtube_consumer
 make test     # uv run pytest
 ```
 
-Tests live in `test/` and are configured via `[tool.pytest.ini_options]` in
-`pyproject.toml` (`--strict-markers`, `--strict-config`, verbose).
+Tests live in `test/` (`test/test_publish.py`, `test/providers/test_youtube.py`)
+and are configured via `[tool.pytest.ini_options]` in `pyproject.toml`
+(`--strict-markers`, `--strict-config`, verbose).
 
 Conventions:
 - Async tests are marked `@pytest.mark.asyncio`.
 - The RabbitMQ broker is **never** touched in tests. `test/test_publish.py`
-  uses a duck-typed `FakeBroker` (records `publish`, `declare_exchange`,
-  `declare_queue`, and queue-binding calls) and plain `Settings(...)` instances.
+  uses a duck-typed `FakeBroker` recording only `publish` and `declare_exchange`
+  calls — `test_ensure_exchange_declares_only_the_exchange` asserts it exposes no
+  queue/binding surface — plus plain `Settings(...)` instances.
 - The YouTube poller is tested with hand-built fakes (`_FakeClient`,
   `_FakeResponse`) satisfying the `_HTTPClient` protocol; provider-level tests
   use `unittest.mock.patch.object` on `_open_chat`.
@@ -110,6 +113,7 @@ Conventions:
 ## Development Conventions
 
 ```bash
+make dev     # uv sync --dev
 make check   # lint + types + test (default verification gate)
 make lint    # ruff check . && flake8 src/ test/
 make types   # mypy src/ (strict)

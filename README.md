@@ -1,18 +1,18 @@
 # youtube_consumer
 
-Publishes YouTube live chat messages to a RabbitMQ `messages` fanout exchange
-bound to the durable `messages` queue, feeding the existing
-`stream_stats_consumer` → `stream_stats` storage pipeline.
+Publishes YouTube live chat messages as JSON to a RabbitMQ `messages` fanout
+exchange. That exchange is the entire scope of this service: it knows nothing
+about queues, bindings, or what consumes the messages. Everything below the
+exchange is owned by downstream services (the `stream_stats_consumer` →
+`stream_stats` pipeline).
 
 ```
-[YouTube live chat]
-    │
-    ▼
 youtube_consumer  (YouTubeProvider extracted from termchat)
     │  publish JSON to fanout  (MessageCreate, source=1/youtube)
     ▼
-RabbitMQ "messages" fanout exchange  (durable)
-    │  binding  (fanout → "messages" queue)
+RabbitMQ "messages" fanout exchange  (durable)   ← this service's whole world
+─────────────────────────────────────────────────────────────────────────────
+    │  binding  (fanout → "messages" queue)       ← owned by the consumer
     ▼
 RabbitMQ "messages" queue  (durable)
     │
